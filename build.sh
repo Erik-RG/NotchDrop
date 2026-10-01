@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # NotchMusic Build Script
-# This script builds the NotchMusic macOS app from source
+# This script builds the NotchMusic macOS app from source into a .app bundle
 
 set -e
 
@@ -13,25 +13,27 @@ if ! command -v xcodebuild &> /dev/null; then
     exit 1
 fi
 
-# Create a temporary Xcode project directory
-TEMP_DIR=$(mktemp -d)
-trap "rm -rf $TEMP_DIR" EXIT
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+BUILD_DIR="$SCRIPT_DIR/build"
+APP_BUNDLE="$BUILD_DIR/NotchMusic.app"
 
-echo "📁 Creating temporary project structure..."
+# Clean previous builds
+if [ -d "$BUILD_DIR" ]; then
+    echo "🗑️  Cleaning previous builds..."
+    rm -rf "$BUILD_DIR"
+fi
 
-# Create the project directory structure
-mkdir -p "$TEMP_DIR/NotchMusic"
-mkdir -p "$TEMP_DIR/NotchMusic/NotchMusic"
+mkdir -p "$BUILD_DIR"
 
-# Copy Swift source files
-cp NotchMusicApp.swift "$TEMP_DIR/NotchMusic/NotchMusic/"
-cp AppDelegate.swift "$TEMP_DIR/NotchMusic/NotchMusic/"
-cp NotchViewModel.swift "$TEMP_DIR/NotchMusic/NotchMusic/"
-cp NotchContentView.swift "$TEMP_DIR/NotchMusic/NotchMusic/"
-cp FileDropTray.swift "$TEMP_DIR/NotchMusic/NotchMusic/"
+echo "📁 Creating app bundle structure..."
+
+# Create the app bundle structure
+mkdir -p "$APP_BUNDLE/Contents/MacOS"
+mkdir -p "$APP_BUNDLE/Contents/Resources"
 
 # Create Info.plist
-cat > "$TEMP_DIR/NotchMusic/NotchMusic/Info.plist" << 'EOF'
+cat > "$APP_BUNDLE/Contents/Info.plist" << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -54,98 +56,55 @@ cat > "$TEMP_DIR/NotchMusic/NotchMusic/Info.plist" << 'EOF'
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
     <string>11.0</string>
-    <key>NSMainStoryboardFile</key>
-    <string></string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
-    <key>NSRequiresIPhoneOS</key>
-    <false/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
 </dict>
 </plist>
 EOF
 
-# Create project.pbxproj (simplified)
-cat > "$TEMP_DIR/NotchMusic/NotchMusic.xcodeproj/project.pbxproj" << 'EOF'
-// !$*UTF8*$!
-{
-    archiveVersion = 1;
-    classes = {
-    };
-    objectVersion = 56;
-    objects = {
-        /* Begin PBXBuildFile section */
-        1A1A1A1A1A1A1A1A1A1A1A1A /* NotchMusicApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B1B1B1B1B1B1B1B1B1B1B1B; };
-        2A2A2A2A2A2A2A2A2A2A2A2A /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B2B2B2B2B2B2B2B2B2B2B2B; };
-        3A3A3A3A3A3A3A3A3A3A3A3A /* NotchViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B3B3B3B3B3B3B3B3B3B3B3B; };
-        4A4A4A4A4A4A4A4A4A4A4A4A /* NotchContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B4B4B4B4B4B4B4B4B4B4B4B; };
-        5A5A5A5A5A5A5A5A5A5A5A5A /* FileDropTray.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B5B5B5B5B5B5B5B5B5B5B5B; };
-        6A6A6A6A6A6A6A6A6A6A6A6A /* MediaPlayer.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6B6B6B6B6B6B6B6B6B6B6B6B; };
-    /* End PBXBuildFile section */
-    };
-    rootObject = 0A0A0A0A0A0A0A0A0A0A0A0A;
-}
-EOF
-
-echo "🏗️  Building with xcodebuild..."
-
-# Build the app using Swift package manager or create a minimal workspace
-cd "$TEMP_DIR/NotchMusic"
-
-# Create a Package.swift for Swift Package Manager approach
-cat > Package.swift << 'EOF'
-// swift-tools-version:5.5
-import PackageDescription
-
-let package = Package(
-    name: "NotchMusic",
-    platforms: [
-        .macOS(.v11)
-    ],
-    targets: [
-        .executableTarget(
-            name: "NotchMusic",
-            dependencies: [],
-            path: "NotchMusic"
-        )
-    ]
-)
-EOF
-
-# Alternative: Use xcodebuild to create the app
-# First, let's use a simpler approach with swiftc directly
-
-OUTPUT_DIR="./build"
-mkdir -p "$OUTPUT_DIR"
-
 echo "⚙️  Compiling Swift source files..."
 
-swiftc -target x86_64-apple-macosx11.0 \
-    NotchMusic/NotchMusicApp.swift \
-    NotchMusic/AppDelegate.swift \
-    NotchMusic/NotchViewModel.swift \
-    NotchMusic/NotchContentView.swift \
-    NotchMusic/FileDropTray.swift \
+# Determine architecture
+ARCH=$(uname -m)
+if [ "$ARCH" = "arm64" ]; then
+    TARGET_TRIPLE="arm64-apple-macosx11"
+else
+    TARGET_TRIPLE="x86_64-apple-macosx11"
+fi
+
+# Compile all Swift files into a single executable
+swiftc \
+    -target "$TARGET_TRIPLE" \
+    -parse-as-library \
+    -suppress-warnings \
+    "$SCRIPT_DIR/NotchMusicApp.swift" \
+    "$SCRIPT_DIR/AppDelegate.swift" \
+    "$SCRIPT_DIR/NotchViewModel.swift" \
+    "$SCRIPT_DIR/NotchContentView.swift" \
+    "$SCRIPT_DIR/FileDropTray.swift" \
     -framework Cocoa \
     -framework SwiftUI \
     -framework MediaPlayer \
-    -o "$OUTPUT_DIR/NotchMusic" 2>/dev/null || {
-    echo "⚠️  Direct compilation encountered an issue. Attempting Xcode build..."
-    
-    # Create a proper Xcode project
-    mkdir -p "NotchMusic.xcodeproj"
-    
-    xcodebuild -scheme NotchMusic \
-        -configuration Release \
-        -derivedDataPath "$OUTPUT_DIR/DerivedData" \
-        2>&1 | grep -v "warning:" || true
-}
+    -o "$APP_BUNDLE/Contents/MacOS/NotchMusic" 2>&1 | grep -v "warning:" || true
+
+# Check if compilation was successful
+if [ ! -f "$APP_BUNDLE/Contents/MacOS/NotchMusic" ]; then
+    echo "❌ Compilation failed. Trying alternative build method..."
+    exit 1
+fi
+
+# Make the executable executable (should already be, but just in case)
+chmod +x "$APP_BUNDLE/Contents/MacOS/NotchMusic"
 
 echo "✅ Build complete!"
 echo ""
-echo "📦 App location: $OUTPUT_DIR/NotchMusic"
+echo "📦 App bundle created at: $APP_BUNDLE"
 echo ""
 echo "To run the app, you can:"
-echo "  1. Open it directly: open $OUTPUT_DIR/NotchMusic"
-echo "  2. Or build and run from Xcode for development"
+echo "  1. Double-click the app in Finder"
+echo "  2. Or run: open $APP_BUNDLE"
+echo "  3. Or run from Terminal: $APP_BUNDLE/Contents/MacOS/NotchMusic"
 echo ""
 echo "🎵 NotchMusic is ready to use!"
