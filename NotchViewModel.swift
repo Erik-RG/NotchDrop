@@ -1,21 +1,22 @@
 import Foundation
 import Combine
+import AppKit
 
 final class NotchViewModel: ObservableObject {
     @Published var trackTitle: String = "No track"
     @Published var artist: String = "Music"
+    @Published var album: String = "Not playing"
     @Published var isPlaying: Bool = false
+    @Published var coverArt: NSImage?
     @Published var droppedFiles: [URL] = []
 
     private var updateTimer: Timer?
 
     func startMonitoring() {
-        updateNowPlaying()
-        updatePlaybackState()
-
-        updateTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            self?.updateNowPlaying()
-            self?.updatePlaybackState()
+        refreshNowPlaying()
+        updateTimer?.invalidate()
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.refreshNowPlaying()
         }
     }
 
@@ -44,79 +45,99 @@ final class NotchViewModel: ObservableObject {
     }
 
     func addDroppedFiles(_ urls: [URL]) {
-        for url in urls {
-            if !droppedFiles.contains(url) {
-                droppedFiles.append(url)
-            }
+        for url in urls where !droppedFiles.contains(url) {
+            droppedFiles.append(url)
         }
     }
 
-    private func updateNowPlaying() {
-        let script = """
-            tell application "Music"
-                if player state is playing or player state is paused then
-                    set trackName to name of current track
-                    set artistName to artist of current track
-                    return trackName & "|" & artistName
-                else
-                    return "No track|Music"
-                end if
-            end tell
-            """
+    private func refreshNowPlaying() {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self else { return }
 
-        if let result = executeAppleScriptWithResult(script) {
-            let parts = result.split(separator: "|", maxSplits: 1).map(String.init)
-            if parts.count == 2 {
-                DispatchQueue.main.async {
-                    self.trackTitle = parts[0]
-                    self.artist = parts[1]
-                }
+            let script = """
+                tell application "Music"
+                    if player state is playing or player state is paused then
+                        set trackName to name of current track
+                        set artistName to artist of current track
+                        set albumName to album of current track
+                        set artData to data of artwork 1 of current track
+
+                        if artData is missing value then
+                            return trackName & "|" & artistName & "|" & albumName & "|NO_ART"
+                        end if
+
+                        set tempFolder to POSIX path of (path to temporary items)
+                        set tempName to "notchmusic-cover-" & (do shell script "uuidgen") & ".tiff"
+                        set tempPath to tempFolder & tempName
+                        set outFile to open for access tempPath with write permission
+                        write artData to outFile
+                        close access outFile
+
+                        return trackName & "|" & artistName & "|" & albumName & "|" & tempPath
+                    else
+                        return "No track|Music|Not playing|NO_ART"
+                    end if
+                end tell
+                """
+
+            guard let result = self.executeAppleScriptWithResult(script) else {
+                self.applyFallbackState()
+                return
             }
-        }
-    }
 
-    private func updatePlaybackState() {
-        let script = """
-            tell application "Music"
-                if player state is playing then
-                    return "playing"
-                else
-                    return "stopped"
-                end if
-            end tell
-            """
+            let parts = result.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
+            guard parts.count >= 4 else {
+                self.applyFallbackState()
+                return
+            }
 
-        if let result = executeAppleScriptWithResult(script) {
+            let title = parts[0]
+            let artist = parts[1]
+            let album = parts[2]
+            let artPath = parts[3]
+
+            let image: NSImage?
+            if artPath == "NO_ART" {
+                image = nil
+            } else {
+                image = NSImage(contentsOfFile: artPath)
+            }
+
             DispatchQueue.main.async {
-                self.isPlaying = result.trimmingCharacters(in: .whitespaces) == "playing"
+                self.trackTitle = title
+                self.artist = artist
+                self.album = album
+                self.isPlaying = title != "No track"
+                self.coverArt = image
             }
+        }
+    }
+
+    private func applyFallbackState() {
+        DispatchQueue.main.async {
+            self.trackTitle = "No track"
+            self.artist = "Music"
+            self.album = "Not playing"
+            self.isPlaying = false
+            self.coverArt = nil
         }
     }
 
     private func executeAppleScript(_ script: String) {
-        DispatchQueue.global().async {
-            if let scriptObject = NSAppleScript(source: script) {
-                var errorInfo: NSDictionary?
-                scriptObject.executeAndReturnError(&errorInfo)
-                if errorInfo != nil {
-                    print("AppleScript error: \(String(describing: errorInfo))")
-                }
-            }
+        DispatchQueue.global(qos: .utility).async {
+            _ = self.executeAppleScriptWithResult(script)
         }
     }
 
     private func executeAppleScriptWithResult(_ script: String) -> String? {
-        var result: String?
-
-        if let scriptObject = NSAppleScript(source: script) {
-            var errorInfo: NSDictionary?
-            let output = scriptObject.executeAndReturnError(&errorInfo)
-            if errorInfo == nil {
-                result = output.stringValue
-            }
+        guard let scriptObject = NSAppleScript(source: script) else { return nil }
+        var error: NSDictionary?
+        let output = scriptObject.executeAndReturnError(&error)
+        if let error {
+            print("AppleScript error: \(error)")
+            return nil
         }
-
-        return result
+        return output?.stringValue
     }
 
     deinit {
