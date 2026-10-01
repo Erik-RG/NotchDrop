@@ -8,10 +8,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let contentView = NotchContentView(viewModel: viewModel)
         let hostingView = NSHostingView(rootView: contentView)
-        hostingView.frame = NSRect(x: 0, y: 0, width: 420, height: 90)
+        hostingView.frame = NSRect(x: 0, y: 0, width: NSScreen.main?.frame.width ?? 1440, height: 120)
 
         window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 90),
+            contentRect: NSRect(x: 0, y: NSScreen.main?.frame.height ?? 900 - 120, width: NSScreen.main?.frame.width ?? 1440, height: 120),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
@@ -19,27 +19,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         window.isOpaque = false
         window.backgroundColor = .clear
-        window.hasShadow = true
+        window.hasShadow = false
         window.level = .floating
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         window.contentView = hostingView
         window.isReleasedWhenClosed = false
+        window.ignoresMouseEvents = false
 
-        positionWindowAtTopEdge()
+        positionWindowAsNotch()
         window.makeKeyAndOrderFront(nil)
+
+        NSApp.setActivationPolicy(.accessory)
 
         viewModel.startMonitoring()
     }
 
-    private func positionWindowAtTopEdge() {
+    private func positionWindowAsNotch() {
         guard let screen = NSScreen.main else { return }
 
-        let screenFrame = screen.visibleFrame
-        let width: CGFloat = 420
-        let height: CGFloat = 90
-        let x = screenFrame.midX - (width / 2)
-        let y = screenFrame.maxY - height - 20
+        let screenFrame = screen.frame
+        let notchHeight: CGFloat = 120
+        let x: CGFloat = 0
+        let y = screenFrame.height - notchHeight
 
-        window.setFrame(NSRect(x: x, y: y, width: width, height: height), display: true)
+        window.setFrame(NSRect(x: x, y: y, width: screenFrame.width, height: notchHeight), display: true)
     }
 }
