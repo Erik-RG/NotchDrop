@@ -1,5 +1,4 @@
 import Foundation
-import MediaPlayer
 import Combine
 
 final class NotchViewModel: ObservableObject {
@@ -8,42 +7,40 @@ final class NotchViewModel: ObservableObject {
     @Published var isPlaying: Bool = false
     @Published var droppedFiles: [URL] = []
 
-    private let player = MPMusicPlayerController.systemMusicPlayer
+    private var updateTimer: Timer?
 
     func startMonitoring() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleNowPlayingChanged),
-            name: .MPMusicPlayerControllerNowPlayingItemDidChange,
-            object: player
-        )
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handlePlaybackChanged),
-            name: .MPMusicPlayerControllerPlaybackStateDidChange,
-            object: player
-        )
-
-        player.beginGeneratingPlaybackNotifications()
         updateNowPlaying()
         updatePlaybackState()
+
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            self?.updateNowPlaying()
+            self?.updatePlaybackState()
+        }
     }
 
     func previousTrack() {
-        player.skipToPreviousItem()
+        executeAppleScript("""
+            tell application "Music"
+                previous track
+            end tell
+            """)
     }
 
     func nextTrack() {
-        player.skipToNextItem()
+        executeAppleScript("""
+            tell application "Music"
+                next track
+            end tell
+            """)
     }
 
     func togglePlayPause() {
-        if player.playbackState == .playing {
-            player.pause()
-        } else {
-            player.play()
-        }
+        executeAppleScript("""
+            tell application "Music"
+                playpause
+            end tell
+            """)
     }
 
     func addDroppedFiles(_ urls: [URL]) {
@@ -54,25 +51,75 @@ final class NotchViewModel: ObservableObject {
         }
     }
 
-    @objc private func handleNowPlayingChanged() {
-        updateNowPlaying()
-    }
-
-    @objc private func handlePlaybackChanged() {
-        updatePlaybackState()
-    }
-
     private func updateNowPlaying() {
-        if let item = player.nowPlayingItem {
-            trackTitle = item.title ?? "Unknown title"
-            artist = item.artist ?? "Unknown artist"
-        } else {
-            trackTitle = "No track"
-            artist = "Music"
+        let script = """
+            tell application "Music"
+                if player state is playing or player state is paused then
+                    set trackName to name of current track
+                    set artistName to artist of current track
+                    return trackName & "|" & artistName
+                else
+                    return "No track|Music"
+                end if
+            end tell
+            """
+
+        if let result = executeAppleScriptWithResult(script) {
+            let parts = result.split(separator: "|", maxSplits: 1).map(String.init)
+            if parts.count == 2 {
+                DispatchQueue.main.async {
+                    self.trackTitle = parts[0]
+                    self.artist = parts[1]
+                }
+            }
         }
     }
 
     private func updatePlaybackState() {
-        isPlaying = (player.playbackState == .playing)
+        let script = """
+            tell application "Music"
+                if player state is playing then
+                    return "playing"
+                else
+                    return "stopped"
+                end if
+            end tell
+            """
+
+        if let result = executeAppleScriptWithResult(script) {
+            DispatchQueue.main.async {
+                self.isPlaying = result.trimmingCharacters(in: .whitespaces) == "playing"
+            }
+        }
+    }
+
+    private func executeAppleScript(_ script: String) {
+        DispatchQueue.global().async {
+            if let scriptObject = NSAppleScript(source: script) {
+                var errorInfo: NSDictionary?
+                scriptObject.executeAndReturnError(&errorInfo)
+                if errorInfo != nil {
+                    print("AppleScript error: \(String(describing: errorInfo))")
+                }
+            }
+        }
+    }
+
+    private func executeAppleScriptWithResult(_ script: String) -> String? {
+        var result: String?
+
+        if let scriptObject = NSAppleScript(source: script) {
+            var errorInfo: NSDictionary?
+            let output = scriptObject.executeAndReturnError(&errorInfo)
+            if errorInfo == nil {
+                result = output.stringValue
+            }
+        }
+
+        return result
+    }
+
+    deinit {
+        updateTimer?.invalidate()
     }
 }
