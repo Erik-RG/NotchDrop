@@ -1,6 +1,5 @@
 import Cocoa
 import SwiftUI
-import MediaPlayer
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow!
