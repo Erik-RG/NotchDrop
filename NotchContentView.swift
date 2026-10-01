@@ -1,83 +1,98 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct NotchContentView: View {
     @ObservedObject var viewModel: NotchViewModel
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(Color.white.opacity(0.1))
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .fill(Color.black.opacity(0.35))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 26, style: .continuous)
-                        .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.24), Color.white.opacity(0.06)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 30, style: .continuous)
+                        .stroke(Color.white.opacity(0.3), lineWidth: 1)
                 )
 
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 14) {
+                if let art = viewModel.coverArt {
+                    Image(nsImage: art)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 62, height: 62)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color.white.opacity(0.12))
+                        Image(systemName: "music.note")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.8))
+                    }
+                    .frame(width: 62, height: 62)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
                     Text(viewModel.trackTitle)
-                        .font(.headline)
-                        .foregroundColor(.primary)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
                         .lineLimit(1)
 
                     Text(viewModel.artist)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.white.opacity(0.78))
                         .lineLimit(1)
 
-                    HStack(spacing: 12) {
-                        Button(action: {
-                            viewModel.previousTrack()
-                        }) {
-                            Image(systemName: "backward.fill")
-                                .font(.title2)
-                                .frame(width: 26, height: 26)
-                        }
-                        .buttonStyle(.plain)
-
-                        Button(action: {
-                            viewModel.togglePlayPause()
-                        }) {
-                            Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.title2)
-                                .frame(width: 30, height: 30)
-                        }
-                        .buttonStyle(.plain)
-
-                        Button(action: {
-                            viewModel.nextTrack()
-                        }) {
-                            Image(systemName: "forward.fill")
-                                .font(.title2)
-                                .frame(width: 26, height: 26)
-                        }
-                        .buttonStyle(.plain)
-
-                        Spacer(minLength: 0)
-
-                        Button(action: {
-                            NSApp.terminate(nil)
-                        }) {
-                            Text("Quit")
-                                .font(.system(size: 11, weight: .semibold))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .frame(height: 26)
-                                .background(Color.red.opacity(0.15))
-                                .foregroundColor(.red)
-                                .clipShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
+                    Text(viewModel.album)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.white.opacity(0.6))
+                        .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+                HStack(spacing: 10) {
+                    controlButton(symbol: "backward.fill", action: viewModel.previousTrack)
+                    controlButton(symbol: viewModel.isPlaying ? "pause.fill" : "play.fill", action: viewModel.togglePlayPause)
+                    controlButton(symbol: "forward.fill", action: viewModel.nextTrack)
+                }
+
                 FileDropTray(files: $viewModel.droppedFiles)
-                    .frame(width: 170)
+                    .frame(width: 120)
+
+                Button(action: {
+                    NSApp.terminate(nil)
+                }) {
+                    Text("Quit")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .frame(height: 24)
+                        .background(Color.red.opacity(0.7))
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
         }
-        .frame(width: 420, height: 90)
+        .frame(width: 420, height: 110)
+    }
+
+    private func controlButton(symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 14, weight: .bold))
+                .frame(width: 28, height: 28)
+                .foregroundColor(.white)
+                .background(Color.white.opacity(0.12))
+                .clipShape(Circle())
+        }
+        .buttonStyle(.plain)
     }
 }
