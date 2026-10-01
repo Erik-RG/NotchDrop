@@ -7,7 +7,7 @@ struct NotchContentView: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(.thinMaterial)
+                .fill(Color.white.opacity(0.1))
                 .overlay(
                     RoundedRectangle(cornerRadius: 26, style: .continuous)
                         .stroke(Color.white.opacity(0.2), lineWidth: 1)
@@ -17,12 +17,12 @@ struct NotchContentView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(viewModel.trackTitle)
                         .font(.headline)
-                        .foregroundStyle(.primary)
+                        .foregroundColor(.primary)
                         .lineLimit(1)
 
                     Text(viewModel.artist)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundColor(.secondary)
                         .lineLimit(1)
 
                     HStack(spacing: 12) {
@@ -64,7 +64,7 @@ struct NotchContentView: View {
                                 .padding(.vertical, 6)
                                 .frame(height: 26)
                                 .background(Color.red.opacity(0.15))
-                                .foregroundStyle(.red)
+                                .foregroundColor(.red)
                                 .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
