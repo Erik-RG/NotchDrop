@@ -137,7 +137,7 @@ final class NotchViewModel: ObservableObject {
             print("AppleScript error: \(error)")
             return nil
         }
-        return output?.stringValue
+        return output.stringValue
     }
 
     deinit {
