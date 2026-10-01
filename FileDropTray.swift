@@ -8,7 +8,7 @@ struct FileDropTray: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Files")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundColor(.gray)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -38,7 +38,7 @@ struct FileTrayItem: View {
         VStack(spacing: 4) {
             Image(systemName: "doc.fill")
                 .font(.title2)
-                .foregroundStyle(.primary)
+                .foregroundColor(.black)
 
             Text(url.lastPathComponent)
                 .font(.system(size: 10))
