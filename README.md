@@ -47,8 +47,5 @@ A macOS app that creates a floating notch for quick Music control with drag-and-
 
 ## Future Enhancements
 
-- Album art display
-- Playlist support
-- Volume control
 - Shuffle and repeat modes
 - Customizable position and size
