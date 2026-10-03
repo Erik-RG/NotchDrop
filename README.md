@@ -10,7 +10,7 @@ A macOS app that creates a floating notch for quick Music control with drag-and-
   - Skip to next track
   - Skip to previous track
 - **Now Playing Display**: Shows current track title and artist
-- **Drag & Drop Files**: Drop files onto the file tray
+- **Drag & Drop Files**: Hold ^ (control) key to drop files onto the file tray
 - **Drag Files Out**: Drag files from the tray to any other application
 - **Quit Button**: Easy access to quit the app
 - **Always on Top**: Window floats above all other windows and spaces
