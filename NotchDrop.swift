@@ -952,10 +952,10 @@ final class NotchSettings: ObservableObject {
             NotchTab.music.rawValue,
             NotchTab.files.rawValue,
             NotchTab.calendar.rawValue,
-            NotchTab.alarms.rawValue,
+            NotchTab.clock.rawValue,
             NotchTab.clipboard.rawValue,
             NotchTab.notes.rawValue,
-            NotchTab.timer.rawValue,
+            NotchTab.apps.rawValue,
             NotchTab.quickActions.rawValue
         ]
         static let openOnHover = true
@@ -1137,7 +1137,7 @@ final class NotchSettings: ObservableObject {
 
         func clean(_ raw: [String]) -> [String] {
             var seen = Set<String>()
-            let valid = raw.filter { NotchTab(rawValue: $0) != nil && seen.insert($0).inserted }
+            let valid = raw.map(NotchTab.migratedRawValue).filter { NotchTab(rawValue: $0) != nil && seen.insert($0).inserted }
             return Array(valid.prefix(NotchSettings.maxTabs))
         }
 
@@ -1147,7 +1147,8 @@ final class NotchSettings: ObservableObject {
         }
 
         if let hidden = defaults.stringArray(forKey: key("hiddenTabs")), !hidden.isEmpty {
-            let order = clean(NotchTab.allCases.map { $0.rawValue }.filter { !hidden.contains($0) })
+            let hiddenNow = Set(hidden.map(NotchTab.migratedRawValue))
+            let order = clean(NotchTab.allCases.map { $0.rawValue }.filter { !hiddenNow.contains($0) })
             if !order.isEmpty { return order }
         }
 
@@ -1157,8 +1158,8 @@ final class NotchSettings: ObservableObject {
     private init() {
 
         showMenuBarIcon = Self.bool("showMenuBarIcon", Default.showMenuBarIcon)
-        defaultTab = Self.string("defaultTab", Default.defaultTab)
-        lastTab = Self.string("lastTab", NotchTab.music.rawValue)
+        defaultTab = NotchTab.migratedRawValue(Self.string("defaultTab", Default.defaultTab))
+        lastTab = NotchTab.migratedRawValue(Self.string("lastTab", NotchTab.music.rawValue))
         tabOrder = Self.loadTabOrder()
 
         openOnHover = Self.bool("openOnHover", Default.openOnHover)
@@ -1976,6 +1977,7 @@ extension Notification.Name {
     static let notchDropOpenRequested = Notification.Name("NotchDropOpenRequested")
     static let notchDropSelectTab = Notification.Name("NotchDropSelectTab")
     static let notchDropFileReceived = Notification.Name("NotchDropFileReceived")
+    static let notchDropSelectClockScreen = Notification.Name("NotchDropSelectClockScreen")
     static let notchDropContentReceived = Notification.Name("NotchDropContentReceived")
 }
 
@@ -3530,31 +3532,35 @@ enum NotchTab: String, CaseIterable, Identifiable {
     case music
     case files
     case calendar
-    case alarms
+    case clock
     case clipboard
     case notes
     case apps
     case quickActions
     case downloads
     case audio
-    case timer
     case system
 
     var id: String { rawValue }
+
+    /// Alarms, Timer and Stopwatch used to be separate tabs; saved settings that
+    /// still use their old names open the merged Clock tab.
+    static func migratedRawValue(_ raw: String) -> String {
+        (raw == "alarms" || raw == "timer") ? "clock" : raw
+    }
 
     var icon: String {
         switch self {
         case .music: return "music.note"
         case .files: return "tray.fill"
         case .calendar: return "calendar"
-        case .alarms: return "alarm.fill"
+        case .clock: return "clock.fill"
         case .clipboard: return "doc.on.clipboard"
         case .notes: return "note.text"
         case .apps: return "square.grid.2x2"
         case .quickActions: return "bolt.fill"
         case .downloads: return "arrow.down.circle"
         case .audio: return "speaker.wave.2.fill"
-        case .timer: return "timer"
         case .system: return "chart.bar.fill"
         }
     }
@@ -3564,14 +3570,13 @@ enum NotchTab: String, CaseIterable, Identifiable {
         case .music: return "Music"
         case .files: return "Files"
         case .calendar: return "Calendar"
-        case .alarms: return "Alarms"
+        case .clock: return "Clock"
         case .clipboard: return "Clipboard"
         case .notes: return "Notes"
         case .apps: return "Apps"
         case .quickActions: return "Quick Actions"
         case .downloads: return "Downloads"
         case .audio: return "Audio"
-        case .timer: return "Timer"
         case .system: return "System"
         }
     }
@@ -5336,6 +5341,8 @@ struct NotchContainerView: View {
 
     @StateObject private var alarmModel = AlarmViewModel()
     @StateObject private var timerModel = TimerViewModel()
+    @StateObject private var stopwatchModel = StopwatchViewModel()
+    @StateObject private var clockState = ClockScreenState()
     @StateObject private var downloadsModel = DownloadsViewModel()
     @StateObject private var audioModel = AudioDeviceManager()
     @StateObject private var systemModel = SystemStatusViewModel()
@@ -5415,7 +5422,7 @@ struct NotchContainerView: View {
 
     /// Anything at all to show beside the closed notch.
     private var showAlarmActivity: Bool { alarmModel.ringing != nil }
-    private var showTimerActivity: Bool { timerModel.isRunning && timerModel.mode == .timer }
+    private var showTimerActivity: Bool { timerModel.isRunning }
     private var showDownloadActivity: Bool { settings.showActiveDownloadsLive && !downloadsModel.active.isEmpty }
     private var nextCalendarEvent: CalendarEntry? {
         guard let event = calendarModel.events.first, !event.isAllDay else { return nil }
@@ -5886,17 +5893,15 @@ struct NotchContainerView: View {
             break
         case .calendar:
             calendarModel.refresh()
-        case .alarms:
+        case .clock:
             alarmModel.refreshAccess()
         case .downloads:
             downloadsModel.refresh()
-        case .timer:
-            break
         case .system:
             systemModel.refresh()
         }
 
-        if tab != .alarms {
+        if tab != .clock {
             alarmModel.cancelEditing()
         }
     }
@@ -6037,9 +6042,15 @@ struct NotchContainerView: View {
         case .calendar:
             CalendarTabView(model: calendarModel, accent: accent)
                 .transition(tabTransition)
-        case .alarms:
-            AlarmTabView(model: alarmModel, accent: accent)
-                .transition(tabTransition)
+        case .clock:
+            ClockTabView(
+                alarmModel: alarmModel,
+                timerModel: timerModel,
+                stopwatchModel: stopwatchModel,
+                screen: $clockState.screen,
+                accent: accent
+            )
+            .transition(tabTransition)
         case .clipboard:
             ClipboardTabView(model: clipboardModel, accent: accent)
                 .transition(tabTransition)
@@ -6057,9 +6068,6 @@ struct NotchContainerView: View {
                 .transition(tabTransition)
         case .audio:
             AudioTabView(model: audioModel, accent: accent)
-                .transition(tabTransition)
-        case .timer:
-            TimerTabView(model: timerModel, accent: accent)
                 .transition(tabTransition)
         case .system:
             SystemTabView(model: systemModel, accent: accent)
@@ -6202,8 +6210,12 @@ struct NotchContainerView: View {
             let pb = NSPasteboard.general
             pb.clearContents()
             switch content {
-            case .text(let value): pb.setString(value, forType: .string)
-            case .url(let url): pb.writeObjects([url as NSURL]); pb.setString(url.absoluteString, forType: .URL)
+            case .text(let value):
+                pb.setString(value, forType: .string)
+            case .url(let url):
+                let object: NSURL = url as NSURL
+                pb.writeObjects([object])
+                pb.setString(url.absoluteString, forType: .URL)
             }
             viewModel.selectedTab = .clipboard
         }
@@ -6219,14 +6231,40 @@ struct NotchContainerView: View {
         .onChange(of: viewModel.selectedTab) { tab in
             handleSelectedTabChange(tab)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .notchDropAlarmRinging)) { _ in
-            viewModel.selectedTab = .alarms
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .notchDropTimerFinished)) { _ in
-            viewModel.selectedTab = .timer
-            windowManager.holdOpen()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { windowManager.releaseHold() }
-        }
+        .modifier(
+            ClockNotificationHandlers(
+                clockState: clockState,
+                viewModel: viewModel,
+                windowManager: windowManager
+            )
+        )
+    }
+}
+
+/// Alarm ringing, timer finished and search-result jumps into the Clock tab.
+/// Kept as its own modifier so the container's long modifier chain stays quick to compile.
+private struct ClockNotificationHandlers: ViewModifier {
+    @ObservedObject var clockState: ClockScreenState
+    let viewModel: NotchViewModel
+    let windowManager: NotchWindowManager
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .notchDropAlarmRinging)) { _ in
+                clockState.screen = .alarm
+                viewModel.selectedTab = .clock
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .notchDropSelectClockScreen)) { note in
+                if let raw = note.object as? String, let screen = ClockScreen(rawValue: raw) {
+                    clockState.screen = screen
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .notchDropTimerFinished)) { _ in
+                clockState.screen = .timer
+                viewModel.selectedTab = .clock
+                windowManager.holdOpen()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { windowManager.releaseHold() }
+            }
     }
 }
 
@@ -6267,10 +6305,10 @@ struct GlobalSearchView: View {
                     resultsSection("Clipboard", clipboard.filteredItems.filter { matches(state.query, $0.displayTitle) }.prefix(5)) { item in Button { clipboard.recopy(item); isPresented = false } label: { searchRow("doc.on.clipboard", item.displayTitle) }.buttonStyle(.plain) }
                     resultsSection("Notes", notes.filtered.filter { matches(state.query, $0.title) || matches(state.query, $0.body) }.prefix(5)) { note in Button { onSelectTab(.notes); isPresented = false } label: { searchRow("note.text", note.title) }.buttonStyle(.plain) }
                     resultsSection("Calendar", events.filter { matches(state.query, $0.title) }.prefix(5)) { event in Button { onSelectTab(.calendar); isPresented = false } label: { searchRow("calendar", event.title) }.buttonStyle(.plain) }
-                    resultsSection("Alarms", alarms.filter { matches(state.query, String(format: "%02d:%02d", $0.hour, $0.minute)) }.prefix(8)) { alarm in Button { onSelectTab(.alarms); isPresented = false } label: { searchRow("alarm.fill", String(format: "%02d:%02d", alarm.hour, alarm.minute)) }.buttonStyle(.plain) }
+                    resultsSection("Alarms", alarms.filter { matches(state.query, String(format: "%02d:%02d", $0.hour, $0.minute)) }.prefix(8)) { alarm in Button { openClock(.alarm) } label: { searchRow("alarm.fill", String(format: "%02d:%02d", alarm.hour, alarm.minute)) }.buttonStyle(.plain) }
                     resultsSection("Downloads", downloads.items.filter { matches(state.query, $0.url.lastPathComponent) }.prefix(5)) { item in Button { downloads.open(item); isPresented = false } label: { searchRow("arrow.down.circle", item.url.lastPathComponent) }.buttonStyle(.plain) }
                     resultsSection("Audio", audio.devices.filter { matches(state.query, $0.name) }.prefix(5)) { device in Button { audio.select(device.id); onSelectTab(.audio); isPresented = false } label: { searchRow("speaker.wave.2.fill", device.name) }.buttonStyle(.plain) }
-                    resultsSection("Timer", timerSearchResults.filter { matches(state.query, $0) }.prefix(3)) { value in Button { onSelectTab(.timer); isPresented = false } label: { searchRow("timer", value) }.buttonStyle(.plain) }
+                    resultsSection("Timer", timerSearchResults.filter { matches(state.query, $0) }.prefix(3)) { value in Button { openClock(.timer) } label: { searchRow("timer", value) }.buttonStyle(.plain) }
                     resultsSection("System", systemSearchResults.filter { matches(state.query, $0) }.prefix(5)) { value in Button { onSelectTab(.system); isPresented = false } label: { searchRow("chart.bar.fill", value) }.buttonStyle(.plain) }
                     resultsSection("Quick Actions", QuickAction.allCases.filter { matches(state.query, $0.title) }.prefix(8)) { action in Button { onSelectTab(.quickActions); isPresented = false } label: { searchRow(action.icon, action.title) }.buttonStyle(.plain) }
                 }
@@ -6316,7 +6354,13 @@ struct GlobalSearchView: View {
         }
     }
 
-    private var timerSearchResults: [String] { [timer.display, timer.mode.rawValue] + (timer.isRunning ? ["Running"] : ["Stopped"]) }
+    private func openClock(_ screen: ClockScreen) {
+        NotificationCenter.default.post(name: .notchDropSelectClockScreen, object: screen.rawValue)
+        onSelectTab(.clock)
+        isPresented = false
+    }
+
+    private var timerSearchResults: [String] { [timer.display, "Timer"] + (timer.isRunning ? ["Running"] : ["Stopped"]) }
     private var systemSearchResults: [String] { [system.status.battery, system.status.wifi, system.status.bluetooth, system.status.charging ? "Charging" : "Battery"] }
     private func matches(_ query: String, _ value: String) -> Bool {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -6915,40 +6959,162 @@ final class SystemStatusViewModel: ObservableObject {
     }
 }
 
+/// "05:00", or "1:30:00" once it reaches an hour.
+enum ClockFormat {
+    static func string(_ interval: TimeInterval) -> String {
+        let total = max(0, Int(interval))
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let seconds = total % 60
+        return hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, seconds)
+            : String(format: "%02d:%02d", minutes, seconds)
+    }
+}
+
 final class TimerViewModel: ObservableObject {
-    enum Mode: String, CaseIterable { case timer = "Timer", stopwatch = "Stopwatch" }
-    @Published var mode: Mode = .timer
     @Published var remaining: TimeInterval = 300
-    @Published var stopwatch: TimeInterval = 0
     @Published var isRunning = false
     @Published var isPaused = false
-    @Published var customMinutes = 5
-    @Published var laps: [TimeInterval] = []
+    /// True while the time display has keyboard focus.
+    @Published private(set) var isEntering = false
+
     private var timer: Timer?
     private var lastTick = Date()
     private var completionGeneration = 0
 
+    /// Digits typed in this entry session, newest last. They fill HH:MM:SS from the right.
+    private var digits: [Int] = []
+    /// What Reset returns to: the last time set by a preset, by typing, or by Start.
+    private var chosenDuration: TimeInterval = 300
+
+    /// 99:59:59
+    static let maxSeconds: TimeInterval = 359_999
+
     init() { timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in self?.tick() } }
     deinit { timer?.invalidate() }
-    func start() { isRunning = true; isPaused = false; lastTick = Date(); completionGeneration += 1 }
+
+    func start() {
+        if remaining <= 0 { remaining = chosenDuration }
+        guard remaining > 0 else { return }
+        if !isPaused { chosenDuration = remaining }
+        digits.removeAll()
+        isRunning = true; isPaused = false; lastTick = Date(); completionGeneration += 1
+    }
+
     func pause() { isPaused = true; isRunning = false }
-    func reset() { isRunning = false; isPaused = false; remaining = 300; stopwatch = 0; laps.removeAll() }
-    func setPreset(_ seconds: TimeInterval) { remaining = seconds; isRunning = false; isPaused = false }
-    func lap() { laps.insert(stopwatch, at: 0) }
+
+    func reset() {
+        isRunning = false; isPaused = false
+        remaining = chosenDuration
+        digits.removeAll()
+    }
+
+    func setPreset(_ seconds: TimeInterval) {
+        remaining = seconds; chosenDuration = seconds
+        isRunning = false; isPaused = false
+        digits.removeAll()
+    }
+
+    // MARK: Keyboard entry
+
+    func beginEntry() { isEntering = true; digits.removeAll() }
+    func endEntry() { isEntering = false; digits.removeAll() }
+
+    /// Typing 1, 5, 0, 0 gives 15:00. Digits shift in from the right, microwave style.
+    func typeDigit(_ digit: Int) {
+        guard !isRunning, (0...9).contains(digit), digits.count < 6 else { return }
+        digits.append(digit)
+        applyDigits()
+    }
+
+    func deleteDigit() {
+        guard !isRunning else { return }
+        if digits.isEmpty { digits = digitsFromRemaining() }
+        guard !digits.isEmpty else { return }
+        digits.removeLast()
+        applyDigits()
+    }
+
+    /// Arrow keys: add or remove time while not running.
+    func nudge(by seconds: TimeInterval) {
+        guard !isRunning else { return }
+        remaining = min(max(0, remaining + seconds), Self.maxSeconds)
+        chosenDuration = remaining
+        isPaused = false
+        digits.removeAll()
+    }
+
+    /// Return: start, or pause when already running.
+    func commitEntry() {
+        digits.removeAll()
+        if isRunning { pause() } else { start() }
+    }
+
+    private func applyDigits() {
+        let padded = Array(repeating: 0, count: 6 - digits.count) + digits
+        let hours = padded[0] * 10 + padded[1]
+        let minutes = padded[2] * 10 + padded[3]
+        let seconds = padded[4] * 10 + padded[5]
+        remaining = min(TimeInterval(hours * 3600 + minutes * 60 + seconds), Self.maxSeconds)
+        chosenDuration = remaining
+        isPaused = false
+    }
+
+    private func digitsFromRemaining() -> [Int] {
+        let total = Int(remaining)
+        let text = String(format: "%02d%02d%02d", total / 3600, (total % 3600) / 60, total % 60)
+        return text.drop(while: { $0 == "0" }).compactMap { Int(String($0)) }
+    }
+
     private func tick() {
         guard isRunning else { lastTick = Date(); return }
         let now = Date(); let delta = now.timeIntervalSince(lastTick); lastTick = now
-        if mode == .timer {
-            remaining -= delta
-            if remaining <= 0 {
-                remaining = 0; isRunning = false; completionGeneration += 1
-                NSSound(named: NSSound.Name(NotchSettings.shared.timerSound))?.play()
-                if NotchSettings.shared.timerHaptics { NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now) }
-                NotificationCenter.default.post(name: .notchDropTimerFinished, object: nil)
-            }
-        } else { stopwatch += delta }
+        remaining -= delta
+        if remaining <= 0 {
+            remaining = 0; isRunning = false; isPaused = false; completionGeneration += 1
+            NSSound(named: NSSound.Name(NotchSettings.shared.timerSound))?.play()
+            if NotchSettings.shared.timerHaptics { NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now) }
+            NotificationCenter.default.post(name: .notchDropTimerFinished, object: nil)
+        }
     }
-    var display: String { let t = mode == .timer ? remaining : stopwatch; return String(format: "%02d:%02d", Int(t) / 60, Int(t) % 60) }
+
+    var display: String { ClockFormat.string(remaining) }
+}
+
+final class StopwatchViewModel: ObservableObject {
+    @Published private(set) var elapsed: TimeInterval = 0
+    @Published private(set) var isRunning = false
+
+    private var timer: Timer?
+    private var lastTick = Date()
+
+    deinit { timer?.invalidate() }
+
+    func start() {
+        guard !isRunning else { return }
+        isRunning = true
+        lastTick = Date()
+        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in self?.tick() }
+    }
+
+    func pause() {
+        isRunning = false
+        timer?.invalidate(); timer = nil
+    }
+
+    func reset() {
+        pause()
+        elapsed = 0
+    }
+
+    private func tick() {
+        let now = Date()
+        elapsed += now.timeIntervalSince(lastTick)
+        lastTick = now
+    }
+
+    var display: String { ClockFormat.string(elapsed) }
 }
 
 final class RecentFilesViewModel: ObservableObject {
@@ -7312,9 +7478,181 @@ struct AudioTabView: View {
     var body: some View { VStack(alignment: .leading, spacing: 7) { HStack { Text("Volume").font(.caption); Spacer(); Text("\(Int(model.volume * 100))%").font(.caption.monospacedDigit()) }; HStack { Image(systemName: model.volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill"); Slider(value: $model.volume, in: 0...1) { _ in model.setVolume(model.volume) }.tint(accent); Button { model.toggleMute() } label: { Image(systemName: model.muted ? "speaker.slash" : "speaker.wave.2") }.buttonStyle(.plain) }; Text("Output").font(.caption).foregroundColor(.secondary); ScrollView { ForEach(model.devices, id: \.id) { device in Button { model.select(device.id) } label: { HStack { Image(systemName: device.id == model.defaultDeviceID ? "checkmark.circle.fill" : "circle"); Text(device.name).font(.system(size: 10)); Spacer() } }.buttonStyle(.plain) } } }.padding(10).frame(height: NotchMetrics.tabContentHeight) }
 }
 
+/// Which Clock screen is showing. A class instead of @State, so no SwiftUI macro plugin is needed.
+final class ClockScreenState: ObservableObject {
+    @Published var screen: ClockScreen = .alarm
+}
+
+enum ClockScreen: String, CaseIterable, Identifiable {
+    case alarm, timer, stopwatch
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .alarm: return "Alarm"
+        case .timer: return "Timer"
+        case .stopwatch: return "Stopwatch"
+        }
+    }
+}
+
+/// One tab, three completely separate screens. A small page indicator at the
+/// bottom edge switches between them. It sits in the screens' bottom padding,
+/// so the alarm screen looks exactly as it did before.
+struct ClockTabView: View {
+    @ObservedObject var alarmModel: AlarmViewModel
+    @ObservedObject var timerModel: TimerViewModel
+    @ObservedObject var stopwatchModel: StopwatchViewModel
+    @Binding var screen: ClockScreen
+    let accent: Color
+
+    /// Hidden while an alarm is ringing or being edited, so it never covers those controls.
+    private var showsSwitcher: Bool {
+        screen != .alarm || (alarmModel.ringing == nil && !alarmModel.isEditing)
+    }
+
+    var body: some View {
+        ZStack {
+            switch screen {
+            case .alarm:
+                AlarmTabView(model: alarmModel, accent: accent)
+                    .transition(.opacity)
+            case .timer:
+                TimerTabView(model: timerModel, accent: accent)
+                    .transition(.opacity)
+            case .stopwatch:
+                StopwatchTabView(model: stopwatchModel, accent: accent)
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: NotchMetrics.tabContentHeight)
+        .animation(.easeInOut(duration: 0.2), value: screen)
+        .overlay(alignment: .bottom) {
+            if showsSwitcher { switcher }
+        }
+    }
+
+    private var switcher: some View {
+        HStack(spacing: 2) {
+            ForEach(ClockScreen.allCases) { item in
+                Button(action: { screen = item }) {
+                    Capsule()
+                        .fill(Color.white.opacity(item == screen ? 0.85 : 0.28))
+                        .frame(width: item == screen ? 14 : 5, height: 4)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 2)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(item.title)
+            }
+        }
+        .animation(.easeInOut(duration: 0.18), value: screen)
+        .padding(.bottom, 2)
+    }
+}
+
 struct TimerTabView: View {
     @ObservedObject var model: TimerViewModel; let accent: Color
-    var body: some View { VStack(spacing: 7) { Picker("Mode", selection: $model.mode) { ForEach(TimerViewModel.Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) } }.pickerStyle(.segmented); Text(model.display).font(.system(size: 32, weight: .medium, design: .rounded).monospacedDigit()); HStack { ForEach([60.0, 300.0, 600.0, 1500.0], id: \.self) { seconds in Button(Int(seconds) >= 60 ? "\(Int(seconds)/60)m" : "1m") { model.setPreset(seconds) }.buttonStyle(.borderless) } }; HStack { Button(model.isRunning ? "Pause" : "Start") { model.isRunning ? model.pause() : model.start() }.buttonStyle(.borderedProminent).tint(accent); Button("Reset") { model.reset() }.buttonStyle(.borderless); if model.mode == .stopwatch { Button("Lap") { model.lap() }.buttonStyle(.borderless) } } }.padding(10).frame(height: NotchMetrics.tabContentHeight) }
+    var body: some View {
+        VStack(spacing: 7) {
+            Text(model.display)
+                .font(.system(size: 32, weight: .medium, design: .rounded).monospacedDigit())
+                .overlay(alignment: .bottom) {
+                    Capsule().fill(accent).frame(height: 2).opacity(model.isEntering ? 1 : 0)
+                }
+                .overlay(TimeEntryCapture(model: model))
+                .help("Click, then type the time: 1 5 0 0 gives 15:00. Return starts, arrow keys add or remove a minute.")
+            HStack {
+                ForEach([60.0, 300.0, 600.0, 1500.0], id: \.self) { seconds in
+                    Button(Int(seconds) >= 60 ? "\(Int(seconds)/60)m" : "1m") { model.setPreset(seconds) }.buttonStyle(.borderless)
+                }
+            }
+            HStack {
+                Button(model.isRunning ? "Pause" : "Start") { model.isRunning ? model.pause() : model.start() }.buttonStyle(.borderedProminent).tint(accent)
+                Button("Reset") { model.reset() }.buttonStyle(.borderless)
+            }
+        }.padding(10).frame(height: NotchMetrics.tabContentHeight)
+    }
+}
+
+struct StopwatchTabView: View {
+    @ObservedObject var model: StopwatchViewModel; let accent: Color
+    var body: some View {
+        VStack(spacing: 7) {
+            Text(model.display)
+                .font(.system(size: 32, weight: .medium, design: .rounded).monospacedDigit())
+            HStack {
+                Button(model.isRunning ? "Pause" : "Start") { model.isRunning ? model.pause() : model.start() }.buttonStyle(.borderedProminent).tint(accent)
+                Button("Reset") { model.reset() }.buttonStyle(.borderless)
+            }
+        }.padding(10).frame(height: NotchMetrics.tabContentHeight)
+    }
+}
+
+/// Invisible layer over the timer display. Click it and the digit keys type the time.
+private struct TimeEntryCapture: NSViewRepresentable {
+    let model: TimerViewModel
+
+    func makeNSView(context: Context) -> TimeEntryNSView {
+        let view = TimeEntryNSView()
+        view.model = model
+        return view
+    }
+
+    func updateNSView(_ view: TimeEntryNSView, context: Context) {
+        view.model = model
+    }
+}
+
+private final class TimeEntryNSView: NSView {
+    weak var model: TimerViewModel?
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeKey()
+        window?.makeFirstResponder(self)
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        model?.beginEntry()
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        model?.endEntry()
+        return true
+    }
+
+    override func keyDown(with event: NSEvent) {
+
+        guard let model, !event.modifierFlags.contains(.command) else {
+            super.keyDown(with: event)
+            return
+        }
+
+        switch event.keyCode {
+        case 36, 76:        // Return, keypad Enter
+            model.commitEntry()
+        case 51, 117:       // Delete, forward delete
+            model.deleteDigit()
+        case 53:            // Escape
+            window?.makeFirstResponder(nil)
+        case 126:           // Up arrow
+            model.nudge(by: 60)
+        case 125:           // Down arrow
+            model.nudge(by: -60)
+        default:
+            if let text = event.charactersIgnoringModifiers, text.count == 1, let digit = Int(text) {
+                model.typeDigit(digit)
+            } else {
+                super.keyDown(with: event)
+            }
+        }
+    }
 }
 
 struct SystemTabView: View {
