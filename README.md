@@ -28,7 +28,7 @@ A macOS app that creates a floating notch for quick Music control with drag-and-
 
 The easiest way to use NotchDrop is to download the latest release.
 
-**[Download NotchDrop v1.0.0](https://github.com/Erik-RG/NotchDrop/releases/tag/v1.0.0)**
+**[Download NotchDrop v2.0.0](https://github.com/Erik-RG/NotchDrop/releases/tag/v2.0.0)**
 
 Download the app from the **Assets** section of the release, then open it on your Mac.
 
